@@ -17,3 +17,28 @@ export function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2
   const earthRadius = 6371000; // meters
   return earthRadius * c;
 }
+
+// Generate device fingerprint based on browser/device info
+export function generateDeviceFingerprint(deviceId: string): string {
+  const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const platform = typeof navigator !== "undefined" ? navigator.platform : "";
+  const language = typeof navigator !== "undefined" ? navigator.language : "";
+  
+  const components = [
+    deviceId,
+    userAgent,
+    platform,
+    language,
+    new Date().getTimezoneOffset().toString()
+  ].join("|");
+
+  // Simple hash function
+  let hash = 0;
+  for (let i = 0; i < components.length; i++) {
+    const char = components.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return Math.abs(hash).toString(36);
+}

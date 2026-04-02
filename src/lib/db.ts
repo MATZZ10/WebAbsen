@@ -113,9 +113,38 @@ export async function ensureSchema() {
           CONSTRAINT fk_attendance_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
           CONSTRAINT fk_attendance_teacher FOREIGN KEY (updated_by_teacher_id) REFERENCES users(id) ON DELETE SET NULL
         );
+        CREATE TABLE IF NOT EXISTS school_settings (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          geolocation_latitude DOUBLE PRECISION NOT NULL,
+          geolocation_longitude DOUBLE PRECISION NOT NULL,
+          geolocation_radius_meters INTEGER NOT NULL DEFAULT 1000,
+          attendance_enabled BOOLEAN NOT NULL DEFAULT false,
+          attendance_start_time TEXT,
+          attendance_end_time TEXT,
+          allow_late_checkin BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS device_sessions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          device_fingerprint TEXT NOT NULL,
+          latitude DOUBLE PRECISION,
+          longitude DOUBLE PRECISION,
+          is_verified BOOLEAN NOT NULL DEFAULT false,
+          last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT fk_device_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          UNIQUE(user_id, device_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_attendance_checked_in_at ON attendance(checked_in_at);
         CREATE INDEX IF NOT EXISTS idx_attendance_status ON attendance(status);
         CREATE INDEX IF NOT EXISTS idx_attendance_student_id ON attendance(student_id);
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_user_id ON device_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_device_id ON device_sessions(device_id);
       `);
     })();
   }
@@ -252,4 +281,190 @@ export function getTodayRange(base = new Date()) {
   const start = new Date(base); start.setHours(0,0,0,0);
   const end = new Date(base); end.setHours(23,59,59,999);
   return { start, end };
+}
+
+// Device Session Management (Strict Device Locking)
+export type DeviceSession = {
+  id: string;
+  userId: string;
+  deviceId: string;
+  deviceFingerprint: string;
+  latitude: number | null;
+  longitude: number | null;
+  isVerified: boolean;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getDeviceSession(userId: string, deviceId: string): Promise<DeviceSession | undefined> {
+  await ensureSchema();
+  const { rows } = await pool.query<any>(
+    `SELECT id, user_id as "userId", device_id as "deviceId", device_fingerprint as "deviceFingerprint", 
+            latitude, longitude, is_verified as "isVerified", last_activity_at as "lastActivityAt",
+            created_at as "createdAt", updated_at as "updatedAt"
+     FROM device_sessions WHERE user_id = $1 AND device_id = $2 LIMIT 1`,
+    [userId, deviceId]
+  );
+  return rows[0];
+}
+
+export async function getDeviceSessionsByUserId(userId: string): Promise<DeviceSession[]> {
+  await ensureSchema();
+  const { rows } = await pool.query<any>(
+    `SELECT id, user_id as "userId", device_id as "deviceId", device_fingerprint as "deviceFingerprint",
+            latitude, longitude, is_verified as "isVerified", last_activity_at as "lastActivityAt",
+            created_at as "createdAt", updated_at as "updatedAt"
+     FROM device_sessions WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+export async function createOrUpdateDeviceSession(input: {
+  userId: string;
+  deviceId: string;
+  deviceFingerprint: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}): Promise<DeviceSession> {
+  await ensureSchema();
+  const existing = await getDeviceSession(input.userId, input.deviceId);
+  
+  if (existing) {
+    // Update existing session
+    const { rows } = await pool.query<any>(
+      `UPDATE device_sessions 
+       SET latitude = $1, longitude = $2, last_activity_at = NOW(), updated_at = NOW()
+       WHERE user_id = $3 AND device_id = $4
+       RETURNING id, user_id as "userId", device_id as "deviceId", device_fingerprint as "deviceFingerprint",
+                 latitude, longitude, is_verified as "isVerified", last_activity_at as "lastActivityAt",
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [input.latitude ?? null, input.longitude ?? null, input.userId, input.deviceId]
+    );
+    return rows[0];
+  } else {
+    // Create new session
+    const sessionId = uid();
+    const { rows } = await pool.query<any>(
+      `INSERT INTO device_sessions 
+       (id, user_id, device_id, device_fingerprint, latitude, longitude, is_verified, last_activity_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, false, NOW(), NOW(), NOW())
+       RETURNING id, user_id as "userId", device_id as "deviceId", device_fingerprint as "deviceFingerprint",
+                 latitude, longitude, is_verified as "isVerified", last_activity_at as "lastActivityAt",
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [sessionId, input.userId, input.deviceId, input.deviceFingerprint, input.latitude ?? null, input.longitude ?? null]
+    );
+    return rows[0];
+  }
+}
+
+export async function verifyDeviceSession(userId: string, deviceId: string): Promise<void> {
+  await ensureSchema();
+  await pool.query(
+    `UPDATE device_sessions SET is_verified = true, updated_at = NOW() WHERE user_id = $1 AND device_id = $2`,
+    [userId, deviceId]
+  );
+}
+
+export async function revokeAllDeviceSessions(userId: string): Promise<void> {
+  await ensureSchema();
+  await pool.query(`DELETE FROM device_sessions WHERE user_id = $1`, [userId]);
+}
+
+export async function revokeDeviceSession(userId: string, deviceId: string): Promise<void> {
+  await ensureSchema();
+  await pool.query(`DELETE FROM device_sessions WHERE user_id = $1 AND device_id = $2`, [userId, deviceId]);
+}
+
+// School Settings Management
+export type SchoolSettings = {
+  id: string;
+  name: string;
+  geolocation_latitude: number;
+  geolocation_longitude: number;
+  geolocation_radius_meters: number;
+  attendance_enabled: boolean;
+  attendance_start_time: string | null;
+  attendance_end_time: string | null;
+  allow_late_checkin: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getSchoolSettings(): Promise<SchoolSettings | undefined> {
+  await ensureSchema();
+  const { rows } = await pool.query<SchoolSettings>(
+    `SELECT * FROM school_settings LIMIT 1`
+  );
+  return rows[0];
+}
+
+export async function initializeSchoolSettings(): Promise<SchoolSettings> {
+  await ensureSchema();
+  const existing = await getSchoolSettings();
+  if (existing) return existing;
+
+  const settingsId = uid();
+  const { rows } = await pool.query<SchoolSettings>(
+    `INSERT INTO school_settings 
+     (id, name, geolocation_latitude, geolocation_longitude, geolocation_radius_meters, 
+      attendance_enabled, attendance_start_time, attendance_end_time, allow_late_checkin, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+     RETURNING *`,
+    [
+      settingsId,
+      "Sekolah",
+      -6.2088, // Default Jakarta Selatan
+      106.8456,
+      1000, // 1km radius
+      false,
+      "07:00",
+      "14:00",
+      true
+    ]
+  );
+  return rows[0];
+}
+
+export async function updateSchoolSettings(input: {
+  name?: string;
+  geolocation_latitude?: number;
+  geolocation_longitude?: number;
+  geolocation_radius_meters?: number;
+  attendance_enabled?: boolean;
+  attendance_start_time?: string | null;
+  attendance_end_time?: string | null;
+  allow_late_checkin?: boolean;
+}): Promise<SchoolSettings> {
+  await ensureSchema();
+  const current = await getSchoolSettings() || await initializeSchoolSettings();
+
+  const { rows } = await pool.query<SchoolSettings>(
+    `UPDATE school_settings 
+     SET 
+       name = COALESCE($1, name),
+       geolocation_latitude = COALESCE($2, geolocation_latitude),
+       geolocation_longitude = COALESCE($3, geolocation_longitude),
+       geolocation_radius_meters = COALESCE($4, geolocation_radius_meters),
+       attendance_enabled = COALESCE($5, attendance_enabled),
+       attendance_start_time = COALESCE($6, attendance_start_time),
+       attendance_end_time = COALESCE($7, attendance_end_time),
+       allow_late_checkin = COALESCE($8, allow_late_checkin),
+       updated_at = NOW()
+     WHERE id = $9
+     RETURNING *`,
+    [
+      input.name || null,
+      input.geolocation_latitude || null,
+      input.geolocation_longitude || null,
+      input.geolocation_radius_meters || null,
+      input.attendance_enabled ?? null,
+      input.attendance_start_time ?? null,
+      input.attendance_end_time ?? null,
+      input.allow_late_checkin ?? null,
+      current.id
+    ]
+  );
+  return rows[0];
 }
