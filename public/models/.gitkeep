@@ -1,0 +1,4 @@
+# placeholder
+
+This folder stores local face-api.js model files.
+Place the model weight files here to load them from /models.
