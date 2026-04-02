@@ -75,8 +75,9 @@ export default function LoginPage() {
       toast.success("Perangkat terverifikasi. Melanjutkan...");
       setVerifyingDevice(false);
       
-      // Redirect based on role (will be determined by callback)
-      window.location.href = "/admin/recap";
+      // Trigger Google OAuth sign-in after device verification
+      // NextAuth callback will handle role-based redirect
+      await signIn("google", { callbackUrl: "/attendance" });
       
     } catch (error) {
       console.error(error);

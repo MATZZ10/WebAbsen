@@ -1,23 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { format, subDays } from "date-fns";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   BarChart3,
-  Calendar,
   Users,
   TrendingDown,
   Download,
   Filter,
-  CheckCircle2,
   AlertCircle,
   Clock,
+  CheckCircle2,
 } from "lucide-react";
 
 interface AttendanceStats {
@@ -49,6 +45,13 @@ interface FrequentAbsent {
   attendanceRate: number;
 }
 
+interface RecapResponse {
+  statistics?: AttendanceStats;
+  studentStats?: StudentStat[];
+  frequentlyAbsent?: FrequentAbsent[];
+  classList?: string[];
+}
+
 export default function RecapPage() {
   const [startDate, setStartDate] = useState(
     format(subDays(new Date(), 30), "yyyy-MM-dd")
@@ -61,8 +64,9 @@ export default function RecapPage() {
   const [frequentAbsent, setFrequentAbsent] = useState<FrequentAbsent[]>([]);
   const [classList, setClassList] = useState<string[]>([]);
 
-  const fetchRecap = async () => {
+  const fetchRecap = useCallback(async () => {
     setLoading(true);
+
     try {
       const params = new URLSearchParams({
         startDate,
@@ -71,25 +75,29 @@ export default function RecapPage() {
         status: "all",
       });
 
-      const res = await fetch(`/api/admin/recap?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
+      const res = await fetch(`/api/admin/recap?${params.toString()}`);
 
-      const data = await res.json();
-      setStats(data.statistics);
-      setStudentStats(data.studentStats || []);
-      setFrequentAbsent(data.frequentlyAbsent || []);
-      setClassList(data.classList || []);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch recap: ${res.status}`);
+      }
+
+      const data: RecapResponse = await res.json();
+
+      setStats(data.statistics ?? null);
+      setStudentStats(data.studentStats ?? []);
+      setFrequentAbsent(data.frequentlyAbsent ?? []);
+      setClassList(data.classList ?? []);
     } catch (error) {
-      console.error(error);
+      console.error("Gagal mengambil data rekap:", error);
       alert("Gagal mengambil data rekap");
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate, selectedClass]);
 
   useEffect(() => {
-    fetchRecap();
-  }, []);
+    void fetchRecap();
+  }, [fetchRecap]);
 
   const exportToCSV = () => {
     const headers = [
@@ -102,6 +110,12 @@ export default function RecapPage() {
       "Alpa",
       "Persentase Kehadiran",
     ];
+
+    const escapeCsv = (value: unknown) => {
+      const text = String(value ?? "");
+      return `"${text.replaceAll('"', '""')}"`;
+    };
+
     const rows = studentStats.map((s) => [
       s.studentName,
       s.className,
@@ -114,16 +128,19 @@ export default function RecapPage() {
     ]);
 
     const csv = [
-      headers.join(","),
-      ...rows.map((r) => r.map((v) => `"${v}"`).join(",")),
+      headers.map(escapeCsv).join(","),
+      ...rows.map((row) => row.map(escapeCsv).join(",")),
     ].join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `rekap_absensi_${new Date().getTime()}.csv`);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `rekap_absensi_${Date.now()}.csv`;
     link.click();
+
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -131,49 +148,51 @@ export default function RecapPage() {
       <div className="mx-auto max-w-7xl">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white">Rekap Kehadiran</h1>
-          <p className="text-slate-400 mt-2">Laporan lengkap dan analytics absensi siswa</p>
+          <p className="mt-2 text-slate-400">
+            Laporan lengkap dan analytics absensi siswa
+          </p>
         </div>
 
-        <Card className="mb-8 bg-slate-900 border-slate-700">
+        <Card className="mb-8 border-slate-700 bg-slate-900">
           <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="mb-4 flex items-center gap-2">
               <Filter size={20} className="text-blue-400" />
               <h3 className="text-lg font-semibold text-white">Filter</h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div>
-                <label className="text-sm font-medium text-slate-300 block mb-2">
+                <label className="mb-2 block text-sm font-medium text-slate-300">
                   Dari Tanggal
                 </label>
                 <input
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-300 block mb-2">
+                <label className="mb-2 block text-sm font-medium text-slate-300">
                   Sampai Tanggal
                 </label>
                 <input
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-300 block mb-2">
+                <label className="mb-2 block text-sm font-medium text-slate-300">
                   Kelas
                 </label>
                 <select
                   value={selectedClass}
                   onChange={(e) => setSelectedClass(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
                 >
                   <option value="all">Semua Kelas</option>
                   {classList.map((cls) => (
@@ -199,36 +218,40 @@ export default function RecapPage() {
 
         {stats && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-              <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
+            <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Card className="border-green-500/20 bg-gradient-to-br from-green-500/10 to-green-500/5">
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm text-slate-400 mb-1">Hadir</p>
-                      <p className="text-4xl font-bold text-green-400">{stats.present}</p>
+                      <p className="mb-1 text-sm text-slate-400">Hadir</p>
+                      <p className="text-4xl font-bold text-green-400">
+                        {stats.present}
+                      </p>
                     </div>
                     <CheckCircle2 className="text-green-500" size={32} />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-yellow-500/10 to-yellow-500/5 border-yellow-500/20">
+              <Card className="border-yellow-500/20 bg-gradient-to-br from-yellow-500/10 to-yellow-500/5">
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm text-slate-400 mb-1">Terlambat</p>
-                      <p className="text-4xl font-bold text-yellow-400">{stats.late}</p>
+                      <p className="mb-1 text-sm text-slate-400">Terlambat</p>
+                      <p className="text-4xl font-bold text-yellow-400">
+                        {stats.late}
+                      </p>
                     </div>
                     <Clock className="text-yellow-500" size={32} />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
+              <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/5">
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm text-slate-400 mb-1">Sakit</p>
+                      <p className="mb-1 text-sm text-slate-400">Sakit</p>
                       <p className="text-4xl font-bold text-blue-400">{stats.sick}</p>
                     </div>
                     <AlertCircle className="text-blue-500" size={32} />
@@ -236,11 +259,11 @@ export default function RecapPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-red-500/10 to-red-500/5 border-red-500/20">
+              <Card className="border-red-500/20 bg-gradient-to-br from-red-500/10 to-red-500/5">
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm text-slate-400 mb-1">Alpa</p>
+                      <p className="mb-1 text-sm text-slate-400">Alpa</p>
                       <p className="text-4xl font-bold text-red-400">{stats.alpa}</p>
                     </div>
                     <TrendingDown className="text-red-500" size={32} />
@@ -249,22 +272,25 @@ export default function RecapPage() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-              <Card className="bg-slate-900 border-slate-700">
+            <div className="mb-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+              <Card className="border-slate-700 bg-slate-900">
                 <CardContent className="p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
                     <BarChart3 size={20} className="text-blue-400" />
                     Metode Absensi
                   </h3>
+
                   <div className="space-y-4">
                     <div>
-                      <div className="flex justify-between items-center mb-2">
+                      <div className="mb-2 flex items-center justify-between">
                         <span className="text-slate-300">Face Detection</span>
-                        <span className="text-white font-bold">{stats.faceMethod}</span>
+                        <span className="font-bold text-white">
+                          {stats.faceMethod}
+                        </span>
                       </div>
-                      <div className="w-full bg-slate-700 rounded-full h-2">
+                      <div className="h-2 w-full rounded-full bg-slate-700">
                         <div
-                          className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full"
+                          className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500"
                           style={{
                             width: `${
                               stats.totalRecords > 0
@@ -275,14 +301,15 @@ export default function RecapPage() {
                         />
                       </div>
                     </div>
+
                     <div>
-                      <div className="flex justify-between items-center mb-2">
+                      <div className="mb-2 flex items-center justify-between">
                         <span className="text-slate-300">QR Code</span>
-                        <span className="text-white font-bold">{stats.qrMethod}</span>
+                        <span className="font-bold text-white">{stats.qrMethod}</span>
                       </div>
-                      <div className="w-full bg-slate-700 rounded-full h-2">
+                      <div className="h-2 w-full rounded-full bg-slate-700">
                         <div
-                          className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full"
+                          className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-pink-500"
                           style={{
                             width: `${
                               stats.totalRecords > 0
@@ -297,32 +324,32 @@ export default function RecapPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-900 border-slate-700">
+              <Card className="border-slate-700 bg-slate-900">
                 <CardContent className="p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
                     <Users size={20} className="text-orange-400" />
                     Statistik Umum
                   </h3>
+
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Total Record</span>
-                      <span className="text-white font-bold">{stats.totalRecords}</span>
+                      <span className="font-bold text-white">{stats.totalRecords}</span>
                     </div>
+
                     <div className="flex justify-between">
                       <span className="text-slate-400">Presentase Hadir</span>
-                      <span className="text-green-400 font-bold">
+                      <span className="font-bold text-green-400">
                         {stats.totalRecords > 0
-                          ? (
-                              ((stats.present + stats.late) / stats.totalRecords) *
-                              100
-                            ).toFixed(1)
+                          ? (((stats.present + stats.late) / stats.totalRecords) * 100).toFixed(1)
                           : 0}
                         %
                       </span>
                     </div>
+
                     <div className="flex justify-between">
                       <span className="text-slate-400">Presentase Alpa</span>
-                      <span className="text-red-400 font-bold">
+                      <span className="font-bold text-red-400">
                         {stats.totalRecords > 0
                           ? ((stats.alpa / stats.totalRecords) * 100).toFixed(1)
                           : 0}
@@ -335,17 +362,18 @@ export default function RecapPage() {
             </div>
 
             {frequentAbsent.length > 0 && (
-              <Card className="mb-8 bg-red-500/10 border-red-500/20">
+              <Card className="mb-8 border-red-500/20 bg-red-500/10">
                 <CardContent className="p-6">
-                  <h3 className="text-lg font-semibold text-red-300 mb-4 flex items-center gap-2">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-red-300">
                     <AlertCircle size={20} />
-                    ⚠️ Siswa Sering Alpa
+                    Siswa Sering Alpa
                   </h3>
+
                   <div className="space-y-3">
                     {frequentAbsent.map((student, idx) => (
                       <div
-                        key={idx}
-                        className="flex items-center justify-between p-3 bg-slate-800 rounded-lg"
+                        key={`${student.studentName}-${student.className}-${idx}`}
+                        className="flex items-center justify-between rounded-lg bg-slate-800 p-3"
                       >
                         <div>
                           <p className="font-semibold text-white">
@@ -353,10 +381,10 @@ export default function RecapPage() {
                           </p>
                           <p className="text-xs text-slate-400">{student.className}</p>
                         </div>
+
                         <div className="text-right">
                           <Badge
-                            variant="outline"
-                            className="border-red-500/50 bg-red-500/20 text-red-300 mb-1 block"
+                            className="mb-1 block border-red-500/50 bg-red-500/20 text-red-300"
                           >
                             {student.alpaDays}x Alpa
                           </Badge>
@@ -371,12 +399,13 @@ export default function RecapPage() {
               </Card>
             )}
 
-            <Card className="bg-slate-900 border-slate-700 mb-8">
+            <Card className="mb-8 border-slate-700 bg-slate-900">
               <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-white">
                     Detail Kehadiran Siswa
                   </h3>
+
                   <Button
                     onClick={exportToCSV}
                     className="gap-2 bg-green-600 hover:bg-green-700"
@@ -390,75 +419,76 @@ export default function RecapPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-700">
-                        <th className="text-left py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-left font-semibold text-slate-300">
                           Nama Siswa
                         </th>
-                        <th className="text-left py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-left font-semibold text-slate-300">
                           Kelas
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           Total Hari
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           Hadir
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           Terlambat
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           Sakit
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           Alpa
                         </th>
-                        <th className="text-center py-3 px-4 font-semibold text-slate-300">
+                        <th className="px-4 py-3 text-center font-semibold text-slate-300">
                           %
                         </th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {studentStats.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="text-center py-8 text-slate-400">
+                          <td colSpan={8} className="py-8 text-center text-slate-400">
                             Tidak ada data
                           </td>
                         </tr>
                       ) : (
                         studentStats.map((s, idx) => (
                           <tr
-                            key={idx}
+                            key={`${s.studentName}-${s.className}-${idx}`}
                             className="border-b border-slate-800 hover:bg-slate-800/50"
                           >
-                            <td className="py-3 px-4 text-white">{s.studentName}</td>
-                            <td className="py-3 px-4 text-slate-400">{s.className}</td>
-                            <td className="text-center py-3 px-4 text-slate-300">
+                            <td className="px-4 py-3 text-white">{s.studentName}</td>
+                            <td className="px-4 py-3 text-slate-400">{s.className}</td>
+                            <td className="px-4 py-3 text-center text-slate-300">
                               {s.totalDays}
                             </td>
-                            <td className="text-center py-3 px-4">
-                              <span className="text-green-400 font-semibold">
+                            <td className="px-4 py-3 text-center">
+                              <span className="font-semibold text-green-400">
                                 {s.presentDays}
                               </span>
                             </td>
-                            <td className="text-center py-3 px-4">
+                            <td className="px-4 py-3 text-center">
                               <span className="text-yellow-400">{s.lateDays}</span>
                             </td>
-                            <td className="text-center py-3 px-4">
+                            <td className="px-4 py-3 text-center">
                               <span className="text-blue-400">{s.sickDays}</span>
                             </td>
-                            <td className="text-center py-3 px-4">
-                              <span className="text-red-400 font-semibold">
+                            <td className="px-4 py-3 text-center">
+                              <span className="font-semibold text-red-400">
                                 {s.alpaDays}
                               </span>
                             </td>
-                            <td className="text-center py-3 px-4">
+                            <td className="px-4 py-3 text-center">
                               <Badge
-                                className={`${
+                                className={`border ${
                                   s.attendanceRate >= 80
-                                    ? "bg-green-500/20 border-green-500/50 text-green-400"
+                                    ? "border-green-500/50 bg-green-500/20 text-green-400"
                                     : s.attendanceRate >= 60
-                                    ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-400"
-                                    : "bg-red-500/20 border-red-500/50 text-red-400"
-                                } border`}
+                                    ? "border-yellow-500/50 bg-yellow-500/20 text-yellow-400"
+                                    : "border-red-500/50 bg-red-500/20 text-red-400"
+                                }`}
                               >
                                 {s.attendanceRate}%
                               </Badge>
