@@ -1,14 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useCamera } from "@/hooks/use-camera";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import { useAttendance } from "@/hooks/use-attendance";
 import { useFaceApi, captureFaceImage, detectFace } from "@/hooks/use-face-api";
+import { useQrScanner } from "@/hooks/use-qr-scanner";
 import { getDistanceMeters } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Clock, MapPin, AlertCircle, CheckCircle2, QrCode, Camera } from "lucide-react";
 
 type AttendanceStatus = {
   open: boolean;
@@ -21,25 +23,69 @@ type AttendanceStatus = {
 };
 
 export default function AttendancePage() {
+  const session = useSession();
   const { videoRef, start, error: cameraError } = useCamera();
   const { loading: locationLoading, coords, error: locationError, getLocation } = useGeolocation();
   const { loading, submit, result } = useAttendance();
   const { ready: faceReady, loading: faceLoading, error: faceError } = useFaceApi();
+  const { videoRef: qrVideoRef, scanning: qrScanning, startScanning: startQrScanning, stopScanning: stopQrScanning, qrCode, error: qrError } = useQrScanner();
   
-  const [studentId, setStudentId] = useState("");
+  const [attendanceMethod, setAttendanceMethod] = useState<"face" | "qr">("face");
   const [faceStatus, setFaceStatus] = useState<string | null>(null);
+  const [qrStatus, setQrStatus] = useState<string | null>(null);
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
+  const [qrProcessing, setQrProcessing] = useState(false);
 
   useEffect(() => {
     start();
     getLocation();
     checkAttendanceStatus();
     
-    // Check status every minute
     const interval = setInterval(checkAttendanceStatus, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (qrCode && !qrProcessing) {
+      processQrCode(qrCode);
+    }
+  }, [qrCode]);
+
+  async function processQrCode(code: string) {
+    if (!coords) {
+      setQrStatus("Menunggu data lokasi...");
+      return;
+    }
+
+    setQrProcessing(true);
+    setQrStatus("Memproses QR code...");
+
+    try {
+      const res = await fetch("/api/attendance/verify-qr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qrCode: code,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setQrStatus(`✓ ${data.message}`);
+        stopQrScanning();
+      } else {
+        setQrStatus(`✗ ${data.error || "Gagal memproses QR code"}`);
+      }
+    } catch (error) {
+      console.error(error);
+      setQrStatus("✗ Error memproses QR code");
+    } finally {
+      setQrProcessing(false);
+    }
+  }
 
   async function checkAttendanceStatus() {
     try {
@@ -60,13 +106,11 @@ export default function AttendancePage() {
   return (
     <div className="min-h-screen bg-slate-950 p-4 text-white md:p-8">
       <div className="mx-auto max-w-6xl">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold">Sistem Absensi Siswa</h1>
-          <p className="text-slate-400 mt-2">Ikuti instruksi di bawah untuk melakukan absensi</p>
+          <p className="text-slate-400 mt-2">Pilih metode absensi dan ikuti instruksi</p>
         </div>
 
-        {/* Status Alert */}
         {statusLoading ? (
           <div className="mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-6 text-center">
             <p className="text-slate-400">Memuat status sistem...</p>
@@ -101,25 +145,67 @@ export default function AttendancePage() {
           </div>
         ) : null}
 
-        {/* Main Content */}
+        <div className="mb-6 flex gap-3">
+          <button
+            onClick={() => setAttendanceMethod("face")}
+            className={`flex-1 py-3 px-4 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+              attendanceMethod === "face"
+                ? "bg-blue-600 text-white"
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            }`}
+          >
+            <Camera size={20} />
+            Absen Wajah
+          </button>
+          <button
+            onClick={() => setAttendanceMethod("qr")}
+            className={`flex-1 py-3 px-4 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+              attendanceMethod === "qr"
+                ? "bg-purple-600 text-white"
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            }`}
+          >
+            <QrCode size={20} />
+            Scan QR Code
+          </button>
+        </div>
+
         <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          {/* Camera & Form */}
           <Card>
             <CardContent className="p-6">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-semibold">Absensi Wajah</h2>
-                  <p className="text-sm text-slate-400">Arahkan wajah ke kamera, lalu tekan tombol absen</p>
+                  <h2 className="text-2xl font-semibold">
+                    {attendanceMethod === "face" ? "Absensi Wajah" : "Scan QR Code"}
+                  </h2>
+                  <p className="text-sm text-slate-400">
+                    {attendanceMethod === "face"
+                      ? "Arahkan wajah ke kamera, lalu tekan tombol absen"
+                      : "Arahkan kamera ke QR code yang diberikan guru"}
+                  </p>
                 </div>
-                <Badge className="border-white/10 bg-white/10">📹 Live</Badge>
+                <Badge className="border-white/10 bg-white/10">
+                  {attendanceMethod === "face" ? "📹 Live" : "📱 QR"}
+                </Badge>
               </div>
 
-              {/* Video Feed */}
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-black mb-4">
-                <video ref={videoRef} autoPlay playsInline className="h-[400px] w-full object-cover" />
-              </div>
+              {attendanceMethod === "face" ? (
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-black mb-4">
+                  <video ref={videoRef} autoPlay playsInline className="h-[400px] w-full object-cover" />
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-black mb-4">
+                  {qrScanning ? (
+                    <video ref={qrVideoRef} autoPlay playsInline className="h-[400px] w-full object-cover" />
+                  ) : (
+                    <div className="h-[400px] w-full bg-slate-900 flex flex-col items-center justify-center gap-4">
+                      <QrCode size={64} className="text-slate-500" />
+                      <p className="text-slate-400">Tekan "Mulai Scan" untuk memulai scanner QR</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {/* Location & Time Info */}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="rounded-lg bg-slate-900/50 p-3 border border-slate-700">
                   <div className="flex items-center gap-2 mb-1">
@@ -141,37 +227,19 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              {/* Input & Button */}
               <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-slate-300 mb-2 block">
-                    Nomor Induk Siswa
-                  </label>
-                  <input
-                    type="text"
-                    value={studentId}
-                    onChange={(e) => setStudentId(e.target.value)}
-                    placeholder="Masukkan NIS Anda"
-                    className="w-full h-11 rounded-lg border border-slate-700 bg-slate-900/50 px-4 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
+                {attendanceMethod === "face" ? (
+                  <Button
+                    onClick={async () => {
+                      setFaceStatus(null);
 
-                <Button
-                  onClick={async () => {
-                    setFaceStatus(null);
+                      if (!canAttend) {
+                        setFaceStatus("Sistem absensi belum dibuka. Tunggu waktu absensi dimulai.");
+                        return;
+                      }
 
-                    if (!canAttend) {
-                      setFaceStatus("Sistem absensi belum dibuka. Tunggu waktu absensi dimulai.");
-                      return;
-                    }
-
-                    if (!studentId.trim()) {
-                      setFaceStatus("Mohon masukkan nomor induk siswa");
-                      return;
-                    }
-
-                    if (!coords) {
-                      setFaceStatus("Tunggu data lokasi GPS atau izinkan akses lokasi.");
+                      if (!coords) {
+                        setFaceStatus("Tunggu data lokasi GPS atau izinkan akses lokasi.");
                       return;
                     }
 
@@ -212,7 +280,7 @@ export default function AttendancePage() {
                     setFaceStatus(`✓ Wajah terdeteksi. Mengirim data absensi...`);
 
                     await submit({
-                      studentId,
+                      studentId: session.data?.user?.id || "",
                       status: "present",
                       confidence: detection.score,
                       faceImageUrl: faceImage,
@@ -229,30 +297,79 @@ export default function AttendancePage() {
                 >
                   {loading ? "Memproses..." : faceLoading ? "Memuat model..." : "Absen Sekarang"}
                 </Button>
+              ) : (
+                <>
+                  <Button
+                    onClick={() => {
+                      if (qrScanning) {
+                        stopQrScanning();
+                      } else {
+                        setQrStatus(null);
+                        startQrScanning();
+                      }
+                    }}
+                    disabled={!canAttend}
+                    className={`w-full h-12 rounded-lg font-semibold transition ${
+                      !canAttend
+                        ? "bg-slate-700 cursor-not-allowed text-slate-500"
+                        : qrScanning
+                        ? "bg-red-600 hover:bg-red-700"
+                        : "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    }`}
+                  >
+                    {qrScanning ? "Hentikan Scan" : "Mulai Scan QR"}
+                  </Button>
+                  {!canAttend && (
+                    <p className="text-xs text-slate-400 text-center">
+                      Sistem absensi belum dibuka
+                    </p>
+                  )}
+                </>
+              )}
               </div>
 
-              {/* Status Messages */}
-              {faceStatus && (
-                <div className="mt-4 p-3 rounded-lg bg-slate-800/50 border border-slate-700">
-                  <p className="text-sm text-slate-300">{faceStatus}</p>
-                </div>
-              )}
-              {faceError && (
-                <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                  <p className="text-sm text-red-300">{faceError}</p>
-                </div>
-              )}
-              {cameraError && (
-                <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                  <p className="text-sm text-red-300">{cameraError}</p>
-                </div>
+              {attendanceMethod === "face" ? (
+                <>
+                  {faceStatus && (
+                    <div className="mt-4 p-3 rounded-lg bg-slate-800/50 border border-slate-700">
+                      <p className="text-sm text-slate-300">{faceStatus}</p>
+                    </div>
+                  )}
+                  {faceError && (
+                    <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <p className="text-sm text-red-300">{faceError}</p>
+                    </div>
+                  )}
+                  {cameraError && (
+                    <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <p className="text-sm text-red-300">{cameraError}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {qrStatus && (
+                    <div className={`mt-4 p-3 rounded-lg border ${ 
+                      qrStatus.startsWith("✓")
+                        ? "bg-green-500/10 border-green-500/30"
+                        : "bg-slate-800/50 border-slate-700"
+                    }`}>
+                      <p className={`text-sm ${qrStatus.startsWith("✓") ? "text-green-300" : "text-slate-300"}`}>
+                        {qrStatus}
+                      </p>
+                    </div>
+                  )}
+                  {qrError && (
+                    <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <p className="text-sm text-red-300">{qrError}</p>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
 
-          {/* Info Sidebar */}
           <div className="space-y-4">
-            {/* School Info */}
             {schoolSettings && (
               <Card>
                 <CardContent className="p-6">
@@ -277,7 +394,6 @@ export default function AttendancePage() {
               </Card>
             )}
 
-            {/* Result Card */}
             <Card>
               <CardContent className="p-6">
                 <h3 className="font-semibold mb-4 text-lg">📊 Hasil Absensi</h3>
@@ -301,7 +417,6 @@ export default function AttendancePage() {
               </CardContent>
             </Card>
 
-            {/* Instructions */}
             <Card>
               <CardContent className="p-6">
                 <h3 className="font-semibold mb-4 text-lg">📋 Panduan</h3>
@@ -309,9 +424,8 @@ export default function AttendancePage() {
                   <li><span className="font-bold">1.</span> Pastikan Anda berada di area sekolah</li>
                   <li><span className="font-bold">2.</span> Izinkan akses kamera dan lokasi</li>
                   <li><span className="font-bold">3.</span> Arahkan wajah ke kamera dengan jelas</li>
-                  <li><span className="font-bold">4.</span> Masukkan nomor induk siswa</li>
-                  <li><span className="font-bold">5.</span> Klik tombol "Absen Sekarang"</li>
-                  <li><span className="font-bold">6.</span> Tunggu konfirmasi berhasil</li>
+                  <li><span className="font-bold">4.</span> Klik tombol "Absen Sekarang"</li>
+                  <li><span className="font-bold">5.</span> Tunggu konfirmasi berhasil</li>
                 </ol>
               </CardContent>
             </Card>

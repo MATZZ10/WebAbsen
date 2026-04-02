@@ -4,33 +4,22 @@ import { ArrowRight, Clock, MapPin, Lock, Users, BarChart3, Shield, Smartphone }
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white overflow-hidden">
-      {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8 flex items-center justify-between">
           <div className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
             WebAbsen
           </div>
-          <div className="flex items-center gap-4">
-            <Link
-              href="/login"
-              className="text-sm text-slate-400 hover:text-white transition"
-            >
-              Masuk
-            </Link>
-            <Link
-              href="/attendance"
-              className="text-sm px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition font-medium"
-            >
-              Absen Sekarang
-            </Link>
-          </div>
+          <Link
+            href="/attendance"
+            className="text-sm px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition font-medium"
+          >
+            Mulai Absen
+          </Link>
         </div>
       </nav>
 
-      {/* Hero Section */}
       <div className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
-          {/* Background gradient */}
           <div className="absolute inset-0 -z-10">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl"></div>
             <div className="absolute bottom-0 right-0 w-96 h-96 bg-cyan-600/20 rounded-full blur-3xl"></div>
@@ -63,18 +52,11 @@ export default function HomePage() {
               >
                 Mulai Absen <ArrowRight size={20} />
               </Link>
-              <Link
-                href="/login"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 font-semibold transition"
-              >
-                Dashboard Guru
-              </Link>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Features Grid */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 border-t border-white/10">
         <div className="mx-auto max-w-6xl">
           <div className="text-center mb-16">
@@ -83,7 +65,6 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Feature 1 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center mb-4 group-hover:bg-blue-500/30 transition">
                 <MapPin className="text-blue-400" size={24} />
@@ -94,7 +75,6 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Feature 2 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center mb-4 group-hover:bg-cyan-500/30 transition">
                 <Lock className="text-cyan-400" size={24} />
@@ -105,7 +85,6 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Feature 3 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center mb-4 group-hover:bg-purple-500/30 transition">
                 <Clock className="text-purple-400" size={24} />
@@ -116,7 +95,6 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Feature 4 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center mb-4 group-hover:bg-green-500/30 transition">
                 <Smartphone className="text-green-400" size={24} />
@@ -127,7 +105,6 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Feature 5 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-orange-500/20 flex items-center justify-center mb-4 group-hover:bg-orange-500/30 transition">
                 <BarChart3 className="text-orange-400" size={24} />
@@ -138,7 +115,6 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Feature 6 */}
             <div className="group rounded-2xl border border-white/10 bg-white/5 p-8 hover:bg-white/10 transition backdrop-blur-xl">
               <div className="w-12 h-12 rounded-xl bg-red-500/20 flex items-center justify-center mb-4 group-hover:bg-red-500/30 transition">
                 <Shield className="text-red-400" size={24} />
@@ -152,7 +128,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 border-t border-white/10">
         <div className="mx-auto max-w-6xl">
           <div className="text-center mb-16">
@@ -186,7 +161,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Security Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 border-t border-white/10">
         <div className="mx-auto max-w-6xl">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -261,7 +235,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Footer */}
+
       <footer className="border-t border-white/10 py-12 px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">

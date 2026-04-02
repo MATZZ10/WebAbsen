@@ -41,6 +41,16 @@ export type AttendanceRow = {
   latitude: number | null;
   longitude: number | null;
   updated_by_teacher_id: string | null;
+  attendance_method: "face" | "qr";
+};
+
+export type QrSession = {
+  id: string;
+  qr_code: string;
+  created_by_teacher_id: string;
+  is_active: boolean;
+  created_at: string;
+  used_at: string | null;
 };
 
 const pool =
@@ -110,9 +120,20 @@ export async function ensureSchema() {
           latitude DOUBLE PRECISION,
           longitude DOUBLE PRECISION,
           updated_by_teacher_id TEXT,
+          attendance_method TEXT NOT NULL CHECK (attendance_method IN ('face', 'qr')) DEFAULT 'face',
           CONSTRAINT fk_attendance_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
           CONSTRAINT fk_attendance_teacher FOREIGN KEY (updated_by_teacher_id) REFERENCES users(id) ON DELETE SET NULL
         );
+        CREATE TABLE IF NOT EXISTS qr_sessions (
+          id TEXT PRIMARY KEY,
+          qr_code TEXT NOT NULL UNIQUE,
+          created_by_teacher_id TEXT NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          used_at TIMESTAMPTZ,
+          CONSTRAINT fk_qr_sessions_teacher FOREIGN KEY (created_by_teacher_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        ALTER TABLE attendance ADD COLUMN IF NOT EXISTS attendance_method TEXT NOT NULL CHECK (attendance_method IN ('face', 'qr')) DEFAULT 'face';
         CREATE TABLE IF NOT EXISTS school_settings (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -145,6 +166,8 @@ export async function ensureSchema() {
         CREATE INDEX IF NOT EXISTS idx_attendance_student_id ON attendance(student_id);
         CREATE INDEX IF NOT EXISTS idx_device_sessions_user_id ON device_sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_device_sessions_device_id ON device_sessions(device_id);
+        CREATE INDEX IF NOT EXISTS idx_qr_sessions_active ON qr_sessions(is_active, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_qr_sessions_code ON qr_sessions(qr_code);
       `);
     })();
   }
@@ -207,11 +230,12 @@ export async function createAttendance(input: {
   longitude?: number | null;
   note?: string | null;
   updatedByTeacherId?: string | null;
+  attendanceMethod?: "face" | "qr";
 }) {
   await ensureSchema();
   await pool.query(
-    `INSERT INTO attendance (id, student_id, status, checked_in_at, updated_at, note, face_image_url, confidence, latitude, longitude, updated_by_teacher_id) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8,$9,$10)`,
-    [uid(), input.studentId, input.status, input.checkedInAt, input.note ?? null, input.faceImageUrl ?? null, input.confidence ?? null, input.latitude ?? null, input.longitude ?? null, input.updatedByTeacherId ?? null]
+    `INSERT INTO attendance (id, student_id, status, checked_in_at, updated_at, note, face_image_url, confidence, latitude, longitude, updated_by_teacher_id, attendance_method) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8,$9,$10,$11)`,
+    [uid(), input.studentId, input.status, input.checkedInAt, input.note ?? null, input.faceImageUrl ?? null, input.confidence ?? null, input.latitude ?? null, input.longitude ?? null, input.updatedByTeacherId ?? null, input.attendanceMethod ?? "face"]
   );
 }
 
@@ -229,7 +253,7 @@ export async function listStudents(): Promise<StudentRow[]> {
 export async function listAttendanceRange(startIso: string, endIso: string): Promise<AttendanceRow[]> {
   await ensureSchema();
   const { rows } = await pool.query<AttendanceRow>(`
-    SELECT a.id, a.student_id, s.name AS student_name, COALESCE(c.name, '-') AS class_name, a.status, a.checked_in_at, a.updated_at, a.note, a.face_image_url, a.confidence::float AS confidence, a.latitude, a.longitude, a.updated_by_teacher_id
+    SELECT a.id, a.student_id, s.name AS student_name, COALESCE(c.name, '-') AS class_name, a.status, a.checked_in_at, a.updated_at, a.note, a.face_image_url, a.confidence::float AS confidence, a.latitude, a.longitude, a.updated_by_teacher_id, CAST(a.attendance_method AS TEXT) AS attendance_method
     FROM attendance a
     JOIN students s ON s.id = a.student_id
     LEFT JOIN class_rooms c ON c.id = s.class_room_id
@@ -242,7 +266,7 @@ export async function listAttendanceRange(startIso: string, endIso: string): Pro
 export async function getAttendanceById(id: string): Promise<AttendanceRow | undefined> {
   await ensureSchema();
   const { rows } = await pool.query<AttendanceRow>(`
-    SELECT a.id, a.student_id, s.name AS student_name, COALESCE(c.name, '-') AS class_name, a.status, a.checked_in_at, a.updated_at, a.note, a.face_image_url, a.confidence::float AS confidence, a.latitude, a.longitude, a.updated_by_teacher_id
+    SELECT a.id, a.student_id, s.name AS student_name, COALESCE(c.name, '-') AS class_name, a.status, a.checked_in_at, a.updated_at, a.note, a.face_image_url, a.confidence::float AS confidence, a.latitude, a.longitude, a.updated_by_teacher_id, CAST(a.attendance_method AS TEXT) AS attendance_method
     FROM attendance a
     JOIN students s ON s.id = a.student_id
     LEFT JOIN class_rooms c ON c.id = s.class_room_id
@@ -467,4 +491,50 @@ export async function updateSchoolSettings(input: {
     ]
   );
   return rows[0];
+}
+
+export async function createQrSession(input: {
+  qrCode: string;
+  createdByTeacherId: string;
+}): Promise<QrSession> {
+  await ensureSchema();
+  const { rows } = await pool.query<QrSession>(
+    `INSERT INTO qr_sessions (id, qr_code, created_by_teacher_id, is_active, created_at)
+     VALUES ($1, $2, $3, true, NOW())
+     RETURNING id, qr_code, created_by_teacher_id, is_active, created_at, used_at`,
+    [uid(), input.qrCode, input.createdByTeacherId]
+  );
+  return rows[0];
+}
+
+export async function getQrSessionByCode(qrCode: string): Promise<QrSession | undefined> {
+  await ensureSchema();
+  const { rows } = await pool.query<QrSession>(
+    `SELECT id, qr_code, created_by_teacher_id, is_active, created_at, used_at FROM qr_sessions WHERE qr_code = $1 LIMIT 1`,
+    [qrCode]
+  );
+  return rows[0];
+}
+
+export async function getActiveQrSession(teacherId: string): Promise<QrSession | undefined> {
+  await ensureSchema();
+  const { rows } = await pool.query<QrSession>(
+    `SELECT id, qr_code, created_by_teacher_id, is_active, created_at, used_at FROM qr_sessions WHERE created_by_teacher_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
+    [teacherId]
+  );
+  return rows[0];
+}
+
+export async function deactivateQrSession(qrSessionId: string): Promise<void> {
+  await ensureSchema();
+  await pool.query(`UPDATE qr_sessions SET is_active = false, used_at = NOW() WHERE id = $1`, [qrSessionId]);
+}
+
+export async function listQrSessions(teacherId: string, limit = 10): Promise<QrSession[]> {
+  await ensureSchema();
+  const { rows } = await pool.query<QrSession>(
+    `SELECT id, qr_code, created_by_teacher_id, is_active, created_at, used_at FROM qr_sessions WHERE created_by_teacher_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [teacherId, limit]
+  );
+  return rows;
 }
